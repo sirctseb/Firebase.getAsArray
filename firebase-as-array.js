@@ -1,4 +1,4 @@
-/*! Firebase.getAsArray - v0.1.0 - 2016-03-25
+/*! Firebase.getAsArray - v0.1.0 - 2016-04-01
 * Copyright (c) 2016 Kato
 * MIT LICENSE */
 
@@ -8,12 +8,16 @@
     return new ReadOnlySynchronizedArray(ref, eventCallback).getList();
   };
 
+  var MIN_PRIORITY_DIFF = 0.00000005;
+
   function ReadOnlySynchronizedArray(ref, eventCallback) {
     this.list = [];
+    this.snaps = {};
     this.subs = []; // used to track event listeners for dispose()
     this.ref = ref;
     this.eventCallback = eventCallback;
     this._wrapList();
+    this._initPriorities();
     this._initListeners();
   }
 
@@ -23,18 +27,58 @@
     },
 
     add: function(data) {
-      var key = this.ref.push().key();
-      var ref = this.ref.child(key);
-      if( arguments.length > 0 ) { ref.set(parseForJson(data), this._handleErrors.bind(this, key)); }
+      var self = this;
+      var ref = this.ref.push();
+      if (this.list.length !== 0) {
+        var priority = this.snaps[this.list[this.list.length - 1].$id].getPriority();
+
+        // set value with priority
+        ref.setWithPriority(parseForJson(data), priority + 1, self._handleErrors.bind(self, ref.key()));
+      } else {
+        ref.setWithPriority(parseForJson(data), 0, this._handleErrors.bind(this, ref.key()));
+      }
       return ref;
     },
 
     set: function(key, newValue) {
-      this.ref.child(key).set(parseForJson(newValue), this._handleErrors.bind(this, key));
+      // get current priority so we can set with the same
+      // TODO we don't have to support setting non-existent key
+      if (!this.snaps.hasOwnProperty(key)) {
+        var self = this;
+        var ref = this.ref.child(key);
+        if (this.list.length !== 0) {
+          var priority = this.snaps[this.list[this.list.length - 1].$id].getPriority();
+
+          // set value with priority
+          ref.setWithPriority(parseForJson(newValue), priority + 1, self._handleErrors.bind(self, ref.key()));
+        } else {
+          ref.setWithPriority(parseForJson(newValue), 0, this._handleErrors.bind(this, ref.key()));
+        }
+      } else {
+        var priority = this.snaps[key].getPriority();
+        this.ref.child(key).setWithPriority(parseForJson(newValue), priority, this._handleErrors.bind(this, key));
+      }
+    },
+
+    setAt: function(index, newValue) {
+      if (index >= 0 && index < this.list.length) {
+        this.set(this.list[index].$id, newValue);
+      }
     },
 
     update: function(key, newValue) {
-      this.ref.child(key).update(parseForJson(newValue), this._handleErrors.bind(this, key));
+      // TODO we don't have to support setting non-existent key
+      if (!this.snaps.hasOwnProperty(key)) {
+        this.set(key, newValue);
+      } else {
+        this.ref.child(key).update(parseForJson(newValue), this._handleErrors.bind(this, key));
+      }
+    },
+
+    updateAt: function(index, newValue) {
+      if (index >= 0 && index < this.list.length) {
+        this.update(this.list[index].$id, newValue);
+      }
     },
 
     setPriority: function(key, newPriority) {
@@ -43,6 +87,110 @@
 
     remove: function(key) {
       this.ref.child(key).remove(this._handleErrors.bind(null, key));
+    },
+
+    removeAt: function(index) {
+      if (index >= 0 && index < this.list.length) {
+        this.remove(this.list[index].$id);
+      }
+    },
+
+    insert: function(index, newValue) {
+      if (this.list.length === 0) {
+        return this.add(newValue);
+      }
+
+      var ref = this.ref.push();
+      if (index === 0) {
+
+        // get priority of first child
+        var priority = this.snaps[this.list[0].$id].getPriority();
+        // set value with priority
+        // TODO do we have to _parseForJson?
+        ref.setWithPriority(newValue, priority - 1);
+      } else if (index >= this.list.length) {
+        // TODO can lump in with first check
+        // TODO in fact, we have to, we're returning the wrong ref
+        this.add(newValue);
+      } else {
+        var prevPriority = this.snaps[this.list[index - 1].$id].getPriority();
+        var nextPriority = this.snaps[this.list[index].$id].getPriority();
+
+        // if diff is getting small, reset priorities
+        if (nextPriority - prevPriority < MIN_PRIORITY_DIFF) {
+          var update = {};
+          for(var listIndex = 0; listIndex < this.list.length; listIndex++) {
+            update[this.list[listIndex].$id+'/.priority'] =
+              // skip index we are going to insert at
+              ((listIndex >= index) ? listIndex + 1 : listIndex);
+          }
+
+          // add value we're inserting
+          newValue = parseVal(ref.key(), newValue);
+          delete newValue['$id'];
+          newValue['.priority'] = index;
+          update[ref.key()] = newValue;
+
+          // do update
+          this.ref.update(update);
+        } else {
+          var priority = (prevPriority + nextPriority)/2;
+
+          ref.setWithPriority(newValue, priority);
+        }
+      }
+      return ref;
+    },
+
+    move: function(index, destinationIndex) {
+      // index has to be a valid current index
+      if (index >= 0 && index < this.list.length) {
+        // destination has to be at least zero and not equal to index or one more
+        if (destinationIndex >= 0 &&
+            destinationIndex !== index &&
+            destinationIndex !== index + 1) {
+          // if moving to end, set priority after current last element
+          if (destinationIndex > this.list.length - 1) {
+            this.snaps[this.list[index].$id].ref().setPriority(
+              this.snaps[this.list[this.list.length - 1].$id].getPriority() + 1
+            );
+          } else {
+            // otherwise, set priority between surrounding elements
+            var prevPriority = this.snaps[this.list[destinationIndex - 1].$id].getPriority();
+            var nextPriority = this.snaps[this.list[destinationIndex].$id].getPriority();
+
+            // if surrounding priority diff is too small, reset to indices
+            if (nextPriority - prevPriority < MIN_PRIORITY_DIFF) {
+
+              // figure out final index of moving element
+              var finalIndex;
+              if (destinationIndex > index) {
+                finalIndex = destinationIndex - 1;
+              } else {
+                finalindex = destinationIndex;
+              }
+              var update = {};
+              var newIndex = 0;
+              for(var listIndex = 0; listIndex < this.list.length; listIndex++) {
+                if (listIndex === index) {
+                  update[this.list[listIndex].$id+'/.priority'] = finalIndex;
+                } else if (listIndex < destinationIndex) {
+                  update[this.list[listIndex].$id+'/.priority'] = newIndex;
+                  newIndex++;
+                } else {
+                  update[this.list[listIndex].$id+'/.priority'] = newIndex + 1;
+                  newIndex++;
+                }
+              }
+
+              // do update
+              this.ref.update(update);
+            } else {
+              this.ref.setPriority((prevPriority + nextPriority)/2);
+            }
+          }
+        }
+      }
     },
 
     posByKey: function(key) {
@@ -79,6 +227,7 @@
     },
 
     _serverAdd: function(snap, prevId) {
+      this.snaps[snap.key()] = snap;
       var data = parseVal(snap.key(), snap.val());
       this._moveTo(snap.key(), data, prevId);
       this._handleEvent('child_added', snap.key(), data);
@@ -93,6 +242,7 @@
     },
 
     _serverChange: function(snap) {
+      this.snaps[snap.key()] = snap;
       var pos = this.posByKey(snap.key());
       if( pos !== -1 ) {
         this.list[pos] = applyToBase(this.list[pos], parseVal(snap.key(), snap.val()));
@@ -130,12 +280,13 @@
     _wrapList: function() {
       this.list.$indexOf = this.posByKey.bind(this);
       this.list.$add = this.add.bind(this);
-      this.list.$remove = this.remove.bind(this);
-      this.list.$set = this.set.bind(this);
-      this.list.$update = this.update.bind(this);
-      this.list.$move = this.setPriority.bind(this);
+      this.list.$removeAt = this.removeAt.bind(this);
+      this.list.$setAt = this.setAt.bind(this);
+      this.list.$updateAt = this.updateAt.bind(this);
       this.list.$rawData = function(key) { return parseForJson(this.getRecord(key)) }.bind(this);
       this.list.$off = this.dispose.bind(this);
+      this.list.$insert = this.insert.bind(this);
+      this.list.$move = this.move.bind(this);
     },
 
     _initListeners: function() {
@@ -143,6 +294,28 @@
       this._monit('child_removed', this._serverRemove);
       this._monit('child_changed', this._serverChange);
       this._monit('child_moved', this._serverMove);
+    },
+
+    _initPriorities: function() {
+      var self = this;
+      this.ref.once('value', function(snapshot) {
+        // check for existing priorities
+        var ordered = true;
+        snapshot.forEach(function(childSnap) {
+          if (childSnap.getPriority() === null) {
+            ordered = false;
+          }
+        });
+
+        if (!ordered) {
+          var update = {};
+          var index = 0;
+          snapshot.forEach(function(childSnap) {
+            update[childSnap.key()+'/.priority'] = index++;
+          });
+          self.ref.update(update);
+        }
+      });
     },
 
     _monit: function(event, method) {

@@ -10,7 +10,7 @@ describe('Firebase.getAsArray', function() {
 
   describe('#constructor', function() {
     beforeEach(function(done) {
-      fb = new Firebase('https://<YOUR FIREBASE>.firebaseio.com');
+      fb = new Firebase('https://test-4892.firebaseio.com');
       fb.set({
         'a': {
           hello: 'world',
@@ -33,7 +33,7 @@ describe('Firebase.getAsArray', function() {
     it('should attach functions to array', function() {
       var list = getAsArray(fb);
       expect(list).is.instanceof(Array);
-      _.each(['$indexOf', '$add', '$remove', '$update', '$move'], function(fn) {
+      _.each(['$indexOf', '$add', '$setAt', '$removeAt', '$updateAt', '$insert', '$move'], function(fn) {
         expect(list[fn]).is.a('function');
       });
     });
@@ -122,7 +122,7 @@ describe('Firebase.getAsArray', function() {
       fb.child('a').set({hello: 'world'});
 
       expect(list.length).equals(len);
-      expect(spy.callCount).equals(len+1);
+      expect(spy.callCount).equals(len+2);
     });
 
     it('should trigger callback for move', function(done) {
@@ -136,6 +136,27 @@ describe('Firebase.getAsArray', function() {
       fb.child('a').setPriority(100, function(error) {
         expect(list.length).equals(len);
         expect(spy.callCount).equals(len+2);
+        done();
+      });
+    });
+
+    it('should not cause move events in existing lists', function(done) {
+      var spy = sinon.spy();
+
+      fb.set(null, function(error) {
+        var list = getAsArray(fb, spy);
+
+        list.$add('one');
+        list.$add('three');
+        // create 0.5 priority
+        list.$insert(1,'two');
+
+        expect(spy.callCount).equals(3);
+
+        var list2 = getAsArray(fb);
+
+        expect(spy.callCount).equals(3);
+
         done();
       });
     });
@@ -280,7 +301,7 @@ describe('Firebase.getAsArray', function() {
     // });
   });
 
-  describe('$set', function() {
+  describe('$setAt', function() {
 
     beforeEach(function(done) {
       fb = new Firebase('https://test-4892.firebaseio.com');
@@ -303,7 +324,7 @@ describe('Firebase.getAsArray', function() {
       var list = getAsArray(fb);
 
       expect(list[1]['.value']).equals('bar');
-      list.$set('b', 'baz');
+      list.$setAt(1, 'baz');
 
       expect(list[1]['.value']).equals('baz');
     });
@@ -315,7 +336,7 @@ describe('Firebase.getAsArray', function() {
         var dat = snap.val();
         dat.test = true;
 
-        list.$set('a', dat);
+        list.$setAt(0, dat);
 
         expect(list[0].test).equals(true);
 
@@ -328,7 +349,7 @@ describe('Firebase.getAsArray', function() {
 
       var listCopy = list.slice();
 
-      list.$set('a', {test: 'hello'});
+      list.$setAt(0, {test: 'hello'});
 
       expect(list.length).is.above(0);
       _.each(list, function(item, i) {
@@ -336,18 +357,18 @@ describe('Firebase.getAsArray', function() {
       });
     });
 
-    it('should create record if does not exist', function() {
+    it('should not create record if does not exist', function() {
       var list = getAsArray(fb);
 
       var len = list.length;
-      list.$set('notakey', {hello: 'world'});
+      list.$setAt(100, {hello: 'world'});
 
-      expect(list.length).equals(len+1);
-      expect(list.$indexOf('notakey')).equals(len);
+      expect(list.length).equals(len);
+      expect(list.$indexOf('notakey')).equals(-1);
     });
   });
 
-  describe('$update', function() {
+  describe('$updateAt', function() {
 
     beforeEach(function(done) {
       fb = new Firebase('https://test-4892.firebaseio.com');
@@ -376,14 +397,14 @@ describe('Firebase.getAsArray', function() {
       var list = getAsArray(fb);
 
       expect(function() {
-        list.$update('foo', true);
+        list.$updateAt(3, true);
       }).to.throw(Error);
     });
 
     it('should replace a primitive', function() {
       var list = getAsArray(fb);
 
-      list.$update('foo', {hello: 'world'});
+      list.$updateAt(3, {hello: 'world'});
 
       expect(list[3]).eqls({$id: 'foo', hello: 'world'});
     });
@@ -391,7 +412,7 @@ describe('Firebase.getAsArray', function() {
     it('should update object', function() {
       var list = getAsArray(fb);
 
-      list.$update('a', {test: true});
+      list.$updateAt(0, {test: true});
 
       expect(list[0].test).equals(true);
     });
@@ -400,7 +421,7 @@ describe('Firebase.getAsArray', function() {
       var list = getAsArray(fb);
 
       var copy = _.assign({}, list[0]);
-      list.$update('a', {test: true});
+      list.$updateAt(0, {test: true});
 
       _.each(copy, function(v,k) {
         expect(list[0][k]).equals(v);
@@ -412,7 +433,7 @@ describe('Firebase.getAsArray', function() {
 
       var listCopy = list.slice();
 
-      list.$update('a', {test: 'hello'});
+      list.$updateAt(0, {test: 'hello'});
 
       expect(list.length).is.above(0);
       _.each(list, function(item, i) {
@@ -420,18 +441,18 @@ describe('Firebase.getAsArray', function() {
       });
     });
 
-    it('should create record if does not exist', function() {
+    it('should not create record if does not exist', function() {
       var list = getAsArray(fb);
 
       var len = list.length;
-      list.$update('notakey', {hello: 'world'});
+      list.$updateAt(100, {hello: 'world'});
 
-      expect(list.length).equals(len+1);
-      expect(list.$indexOf('notakey')).equals(len);
+      expect(list.length).equals(len);
+      expect(list.$indexOf('notakey')).equals(-1);
     });
   });
 
-  describe('$remove', function() {
+  describe('$removeAt', function() {
 
     beforeEach(function(done) {
       fb = new Firebase('https://test-4892.firebaseio.com');
@@ -458,7 +479,7 @@ describe('Firebase.getAsArray', function() {
       var list = getAsArray(fb);
 
       var len = list.length;
-      list.$remove('a');
+      list.$removeAt(0);
 
       expect(list.length).equals(len-1);
       expect(list.$indexOf('a')).equals(-1);
@@ -468,7 +489,8 @@ describe('Firebase.getAsArray', function() {
       var list = getAsArray(fb);
 
       var len = list.length;
-      list.$remove('notakey');
+      list.$removeAt(-1);
+      list.$removeAt(1000);
 
       expect(list.length).equals(len);
       expect(list.$indexOf('notakey')).equals(-1);
@@ -476,7 +498,6 @@ describe('Firebase.getAsArray', function() {
   });
 
   describe('$move', function() {
-
     beforeEach(function(done) {
       fb = new Firebase('https://test-4892.firebaseio.com');
       fb.set({
@@ -502,10 +523,9 @@ describe('Firebase.getAsArray', function() {
       var list = getAsArray(fb);
 
       fb.once('value', function(snap) {
-        var data = snap.val();
-        var keys = _.keys(data);
+        var keys = _.keys(snap.val());
         keys.push(keys.splice(0, 1)[0]);
-        list.$move('a', 100);
+        list.$move(0, 100);
 
         _.each(keys, function(k, i) {
           expect(list.$indexOf(k)).equals(i);
@@ -519,9 +539,8 @@ describe('Firebase.getAsArray', function() {
       var list = getAsArray(fb);
 
       fb.once('value', function(snap) {
-        var data = snap.val();
-        var keys = _.keys(data);
-        list.$move('notakey', 100);
+        var keys = _.keys(snap.val());
+        list.$move(4, 100);
 
         _.each(keys, function(k, i) {
           expect(list.$indexOf(k)).equals(i);
@@ -530,5 +549,78 @@ describe('Firebase.getAsArray', function() {
         done();
       });
     });
+  });
+
+  describe('$insert', function() {
+
+    beforeEach(function(done) {
+      fb = new Firebase('https://test-4892.firebaseio.com');
+      fb.set(null, done)
+    });
+
+    it('should return a Firebase ref containing the record id', function() {
+      var list = getAsArray(fb);
+
+      expect(list.length).equals(0);
+      var ref = list.$add({foo: 'zero'});
+      ref = list.$add({foo: 'two'});
+
+      ref = list.$insert(1, {foo: 'one'});
+
+      expect(list.$indexOf(ref.key())).equals(1);
+    });
+
+    it('should add primitives', function() {
+      var list = getAsArray(fb);
+
+      expect(list.length).equals(0);
+      var ref = list.$add(false);
+      ref = list.$add(false);
+
+      ref = list.$insert(1, true);
+
+      expect(list[1]['.value']).equals(true);
+    });
+
+    it('should add objects', function() {
+      var list = getAsArray(fb);
+
+      expect(list.length).equals(0);
+      var ref = list.$add({foo: 'zero'});
+      ref = list.$add({foo: 'two'});
+
+      var id = list.$insert(1, {foo: 'one'}).key();
+
+      expect(list[1]).eqls({$id: id, foo: 'one'});
+    });
+
+    it('should insert into empty list', function() {
+      var list = getAsArray(fb);
+
+      list.$insert(0, 'zero');;
+
+      expect(list).to.have.length(1);
+    });
+
+    it('should be able to insert at end', function() {
+      var list = getAsArray(fb);
+      list.$add('zero');
+      list.$insert(1, 'one');
+      expect(list).to.have.length(2);
+      expect(list[1]['.value']).eqls('one');
+    });
+
+    // TODO how to test without mock firebase?
+    // it('should call Firebase.push() to create a unique id', function() {
+    //   var list = getAsArray(fb);
+    //
+    //   expect(list.length).equals(0);
+    //   var ref = list.$add({foo: 'zero'});
+    //   ref = list.$add({foo: 'two'});
+    //
+    //   var ref = list.$insert(1, {foo: 'one'});
+    //
+    //   expect(ref.key()).equals(fb.getLastAutoId());
+    // });
   });
 });
