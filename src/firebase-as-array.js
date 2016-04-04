@@ -19,7 +19,7 @@
     },
 
     add: function(data) {
-      var key = this.ref.push().name();
+      var key = this.ref.push().key();
       var ref = this.ref.child(key);
       if( arguments.length > 0 ) { ref.set(parseForJson(data), this._handleErrors.bind(this, key)); }
       return ref;
@@ -75,35 +75,35 @@
     },
 
     _serverAdd: function(snap, prevId) {
-      var data = parseVal(snap.name(), snap.val());
-      this._moveTo(snap.name(), data, prevId);
-      this._handleEvent('child_added', snap.name(), data);
+      var data = parseVal(snap.key(), snap.val());
+      this._moveTo(snap.key(), data, prevId);
+      this._handleEvent('child_added', snap.key(), data);
     },
 
     _serverRemove: function(snap) {
-      var pos = this.posByKey(snap.name());
+      var pos = this.posByKey(snap.key());
       if( pos !== -1 ) {
         this.list.splice(pos, 1);
-        this._handleEvent('child_removed', snap.name(), this.list[pos]);
+        this._handleEvent('child_removed', snap.key(), this.list[pos]);
       }
     },
 
     _serverChange: function(snap) {
-      var pos = this.posByKey(snap.name());
+      var pos = this.posByKey(snap.key());
       if( pos !== -1 ) {
-        this.list[pos] = applyToBase(this.list[pos], parseVal(snap.name(), snap.val()));
-        this._handleEvent('child_changed', snap.name(), this.list[pos]);
+        this.list[pos] = applyToBase(this.list[pos], parseVal(snap.key(), snap.val()));
+        this._handleEvent('child_changed', snap.key(), this.list[pos]);
       }
     },
 
     _serverMove: function(snap, prevId) {
-      var id = snap.name();
+      var id = snap.key();
       var oldPos = this.posByKey(id);
       if( oldPos !== -1 ) {
         var data = this.list[oldPos];
         this.list.splice(oldPos, 1);
         this._moveTo(id, data, prevId);
-        this._handleEvent('child_moved', snap.name(), data);
+        this._handleEvent('child_moved', snap.key(), data);
       }
     },
 
@@ -120,7 +120,6 @@
     },
 
     _handleEvent: function(eventType, recordId, data) {
-      // console.log(eventType, recordId);
       this.eventCallback && this.eventCallback(eventType, recordId, data);
     },
 
