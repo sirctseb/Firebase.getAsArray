@@ -92,7 +92,7 @@
     },
 
     insert: function(index, newValue) {
-      if (this.list.length === 0) {
+      if (this.list.length === 0 || index >= this.list.length) {
         return this.add(newValue);
       }
 
@@ -104,10 +104,6 @@
         // set value with priority
         // TODO do we have to _parseForJson?
         ref.setWithPriority(newValue, priority - 1);
-      } else if (index >= this.list.length) {
-        // TODO can lump in with first check
-        // TODO in fact, we have to, we're returning the wrong ref
-        this.add(newValue);
       } else {
         var prevPriority = this.snaps[this.list[index - 1].$id].getPriority();
         var nextPriority = this.snaps[this.list[index].$id].getPriority();
